@@ -1,3 +1,4 @@
+import { v4 as uuid } from 'uuid'
 import { BRAND_LOGO, BRAND_NAME } from './brand'
 
 export interface TextSection {
@@ -15,6 +16,7 @@ export interface DocumentImage {
 }
 
 export interface DocumentDraft {
+  id: string
   pageCount: number
   logoSrc: string
   documentTitle: string
@@ -23,11 +25,36 @@ export interface DocumentDraft {
   updatedAt: string
 }
 
+export interface SavedDocument {
+  id: string
+  name: string
+  createdAt: string
+  updatedAt: string
+  draft: DocumentDraft
+}
+
+export interface SavedDocumentMeta {
+  id: string
+  name: string
+  createdAt: string
+  updatedAt: string
+  pageCount: number
+}
+
 export const STORAGE_KEY = 'nedp-document-draft-v2'
+export const LEGACY_STORAGE_KEYS = [
+  STORAGE_KEY,
+  'nedp-document-draft',
+] as const
+export const ACTIVE_ID_KEY = 'nedp-active-document-id'
+export const ACTIVE_CACHE_KEY = 'nedp-active-draft-v3'
+export const LIBRARY_FALLBACK_KEY = 'nedp-document-library-v1'
+export const EXPORT_KIND = 'nedp-document'
 export const LOGO_PLACEHOLDER = 'LOGO_PLACEHOLDER'
 
-export function createEmptyDraft(): DocumentDraft {
+export function createEmptyDraft(id = uuid()): DocumentDraft {
   return {
+    id,
     pageCount: 2,
     logoSrc: BRAND_LOGO,
     documentTitle: `${BRAND_NAME} Brief`,
@@ -54,4 +81,9 @@ export function createEmptyDraft(): DocumentDraft {
     images: [],
     updatedAt: new Date().toISOString(),
   }
+}
+
+export function displayNameFor(draft: Pick<DocumentDraft, 'documentTitle'>): string {
+  const name = draft.documentTitle.trim()
+  return name || 'Untitled document'
 }

@@ -1,31 +1,40 @@
-import { Eraser, FolderOpen, Printer, Save } from 'lucide-react'
+import { Eraser, FilePlus, FolderOpen, Printer, Save } from 'lucide-react'
 import { BRAND_LOGO, BRAND_NAME, BRAND_TAGLINE } from '../brand'
+import type { SaveStatus } from '../hooks/useDocumentStore'
 
 interface ToolbarProps {
-  saveStatus: 'idle' | 'saved' | 'cleared'
+  saveStatus: SaveStatus
+  saveError: string | null
+  currentName: string
   updatedAt: string
   onSave: () => void
-  onLoad: () => void
+  onOpen: () => void
+  onNew: () => void
   onClear: () => void
   onPrint: () => void
 }
 
 export function Toolbar({
   saveStatus,
+  saveError,
+  currentName,
   updatedAt,
   onSave,
-  onLoad,
+  onOpen,
+  onNew,
   onClear,
   onPrint,
 }: ToolbarProps) {
   const statusLabel =
     saveStatus === 'saved'
-      ? 'Draft saved'
+      ? `Saved · ${currentName}`
       : saveStatus === 'cleared'
-        ? 'Draft cleared'
-        : updatedAt
-          ? `Last edit ${new Date(updatedAt).toLocaleString()}`
-          : 'Autosave on'
+        ? 'Document cleared'
+        : saveStatus === 'error'
+          ? saveError || 'Save failed'
+          : updatedAt
+            ? `${currentName} · ${new Date(updatedAt).toLocaleString()}`
+            : currentName
 
   return (
     <header className="app-toolbar no-print">
@@ -38,16 +47,23 @@ export function Toolbar({
       </div>
 
       <div className="toolbar-actions">
-        <span className={`save-pill ${saveStatus !== 'idle' ? 'pulse' : ''}`}>
+        <span
+          className={`save-pill ${saveStatus !== 'idle' ? 'pulse' : ''} ${saveStatus === 'error' ? 'error' : ''}`}
+          title={saveError ?? currentName}
+        >
           {statusLabel}
         </span>
         <button type="button" className="btn-secondary" onClick={onSave}>
           <Save size={15} />
-          Save Draft
+          Save
         </button>
-        <button type="button" className="btn-secondary" onClick={onLoad}>
+        <button type="button" className="btn-secondary" onClick={onOpen}>
           <FolderOpen size={15} />
-          Load Draft
+          Open
+        </button>
+        <button type="button" className="btn-secondary" onClick={onNew}>
+          <FilePlus size={15} />
+          New
         </button>
         <button type="button" className="btn-secondary" onClick={onClear}>
           <Eraser size={15} />

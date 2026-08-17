@@ -1,51 +1,132 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { v4 as uuid } from 'uuid'
 import {
+  deleteSavedDocument,
+  downloadDraft,
+  getSavedDocument,
+  hydrateLibrary,
+  listSavedDocuments,
+  parseImportedDocument,
+  putSavedDocument,
+  readActiveCache,
+} from '../lib/documentStorage'
+import {
   createEmptyDraft,
+  displayNameFor,
   type DocumentDraft,
   type DocumentImage,
+  type SavedDocumentMeta,
   type TextSection,
-  STORAGE_KEY,
 } from '../types'
 
-function loadDraft(): DocumentDraft {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return createEmptyDraft()
-    const parsed = JSON.parse(raw) as DocumentDraft
-    const base = createEmptyDraft()
-    return {
-      ...base,
-      ...parsed,
-      logoSrc: parsed.logoSrc || base.logoSrc,
-      sections: parsed.sections ?? [],
-      images: parsed.images ?? [],
-    }
-  } catch {
-    return createEmptyDraft()
-  }
-}
+export type SaveStatus = 'idle' | 'saved' | 'cleared' | 'error'
 
 function clampPage(page: number, pageCount: number) {
   return Math.min(Math.max(1, page), Math.max(1, pageCount))
 }
 
 export function useDocumentStore() {
-  const [draft, setDraft] = useState<DocumentDraft>(loadDraft)
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'cleared'>('idle')
-  const skipAutoSave = useRef(false)
+  const cached = readActiveCache()
+  const [draft, setDraft] = useState<DocumentDraft>(
+    () => cached.draft ?? createEmptyDraft(),
+  )
+  const [saves, setSaves] = useState<SavedDocumentMeta[]>([])
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const skipAutoSave = useRef(true)
+  const readyRef = useRef(false)
+  const draftRef = useRef(draft)
+  draftRef.current = draft
+
+  const refreshSaves = useCallback(async () => {
+    setSaves(await listSavedDocuments())
+  }, [])
+
+  const persist = useCallback(async (next: DocumentDraft) => {
+    try {
+      const saved = await putSavedDocument(next)
+      setSaves((prev) => {
+        const others = prev.filter((item) => item.id !== saved.id)
+        return [
+          {
+            id: saved.id,
+            name: saved.name,
+            createdAt: saved.createdAt,
+            updatedAt: saved.updatedAt,
+            pageCount: saved.draft.pageCount,
+          },
+          ...others,
+        ].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      })
+      setSaveError(null)
+      setSaveStatus('saved')
+      return true
+    } catch (error) {
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : 'Could not save this document in the browser.',
+      )
+      setSaveStatus('error')
+      return false
+    }
+  }, [])
 
   useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const hydrated = await hydrateLibrary()
+        if (cancelled) return
+        skipAutoSave.current = true
+        setDraft(hydrated.draft)
+        setSaves(hydrated.saves)
+        readyRef.current = true
+      } catch {
+        if (cancelled) return
+        readyRef.current = true
+        setSaveError('Could not open the saved-document library.')
+        setSaveStatus('error')
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!readyRef.current) return
     if (skipAutoSave.current) {
       skipAutoSave.current = false
       return
     }
-    const next = { ...draft, updatedAt: new Date().toISOString() }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-    setSaveStatus('saved')
-    const t = window.setTimeout(() => setSaveStatus('idle'), 1600)
-    return () => window.clearTimeout(t)
-  }, [draft])
+    const handle = window.setTimeout(() => {
+      void persist(draftRef.current)
+    }, 250)
+    const statusClear = window.setTimeout(() => {
+      setSaveStatus((current) => (current === 'saved' ? 'idle' : current))
+    }, 1800)
+    return () => {
+      window.clearTimeout(handle)
+      window.clearTimeout(statusClear)
+    }
+  }, [draft, persist])
+
+  useEffect(() => {
+    const flush = () => {
+      if (!readyRef.current) return
+      void persist(draftRef.current)
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush()
+    }
+    window.addEventListener('beforeunload', flush)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('beforeunload', flush)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [persist])
 
   const update = useCallback((patch: Partial<DocumentDraft>) => {
     setDraft((prev) => ({ ...prev, ...patch }))
@@ -153,30 +234,89 @@ export function useDocumentStore() {
     }))
   }, [])
 
-  const saveDraft = useCallback(() => {
-    const next = { ...draft, updatedAt: new Date().toISOString() }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+  const saveDraft = useCallback(async () => {
+    await persist(draftRef.current)
+  }, [persist])
+
+  const openSave = useCallback(async (id: string) => {
+    const saved = await getSavedDocument(id)
+    if (!saved) {
+      setSaveError('That saved document could not be opened.')
+      setSaveStatus('error')
+      await refreshSaves()
+      return
+    }
+    skipAutoSave.current = true
+    setDraft(saved.draft)
+    setSaveError(null)
+    setSaveStatus('saved')
+    await putSavedDocument(saved.draft)
+    await refreshSaves()
+  }, [refreshSaves])
+
+  const newDocument = useCallback(async () => {
+    const next = createEmptyDraft()
+    skipAutoSave.current = true
     setDraft(next)
-    setSaveStatus('saved')
-  }, [draft])
+    await persist(next)
+  }, [persist])
 
-  const loadDraftFromStorage = useCallback(() => {
+  const clearDraft = useCallback(async () => {
+    const next = {
+      ...createEmptyDraft(draftRef.current.id),
+      documentTitle: draftRef.current.documentTitle,
+    }
     skipAutoSave.current = true
-    const loaded = loadDraft()
-    setDraft(loaded)
-    setSaveStatus('saved')
-  }, [])
+    setDraft(next)
+    const ok = await persist(next)
+    if (ok) setSaveStatus('cleared')
+  }, [persist])
 
-  const clearDraft = useCallback(() => {
-    skipAutoSave.current = true
-    localStorage.removeItem(STORAGE_KEY)
-    setDraft(createEmptyDraft())
-    setSaveStatus('cleared')
+  const deleteSave = useCallback(
+    async (id: string) => {
+      await deleteSavedDocument(id)
+      if (draftRef.current.id === id) {
+        const remaining = (await listSavedDocuments()).filter((item) => item.id !== id)
+        if (remaining[0]) {
+          await openSave(remaining[0].id)
+        } else {
+          await newDocument()
+        }
+      } else {
+        await refreshSaves()
+      }
+    },
+    [newDocument, openSave, refreshSaves],
+  )
+
+  const importDraftFile = useCallback(
+    async (file: File) => {
+      try {
+        const text = await file.text()
+        const imported = parseImportedDocument(text)
+        skipAutoSave.current = true
+        setDraft(imported)
+        await persist(imported)
+      } catch (error) {
+        setSaveError(
+          error instanceof Error ? error.message : 'Could not import that file.',
+        )
+        setSaveStatus('error')
+      }
+    },
+    [persist],
+  )
+
+  const exportDraftFile = useCallback(() => {
+    downloadDraft(draftRef.current)
   }, [])
 
   return {
     draft,
+    saves,
     saveStatus,
+    saveError,
+    currentName: displayNameFor(draft),
     update,
     setPageCount,
     addSection,
@@ -186,7 +326,11 @@ export function useDocumentStore() {
     updateImage,
     removeImage,
     saveDraft,
-    loadDraftFromStorage,
+    openSave,
+    newDocument,
     clearDraft,
+    deleteSave,
+    importDraftFile,
+    exportDraftFile,
   }
 }
