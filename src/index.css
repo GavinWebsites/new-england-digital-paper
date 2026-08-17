@@ -491,6 +491,37 @@ button {
   line-height: 1.45;
 }
 
+.format-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.35rem;
+}
+
+.format-btn {
+  width: 1.85rem;
+  height: 1.85rem;
+  background: var(--panel-lift);
+  border: 1px solid var(--line);
+  color: var(--ink-soft);
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.format-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.format-hint {
+  margin: 0 0 0 0.15rem;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
 .image-editor {
   display: grid;
   grid-template-columns: 4.5rem 1fr;
@@ -814,6 +845,14 @@ button {
   line-height: 1.55;
   white-space: pre-wrap;
   color: var(--page-ink);
+}
+
+.doc-section p strong {
+  font-weight: 700;
+}
+
+.doc-section p em {
+  font-style: italic;
 }
 
 .doc-images {

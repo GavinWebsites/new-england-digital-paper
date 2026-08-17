@@ -1,3 +1,4 @@
+import { RichText } from '../lib/richText'
 import { AutoFit } from './AutoFit'
 import { LOGO_PLACEHOLDER, type DocumentImage, type TextSection } from '../types'
 
@@ -71,7 +72,9 @@ export function DocumentPage({
           {sections.map((section) => (
             <section key={section.id} className="doc-section">
               <h2>{section.title || 'Untitled Section'}</h2>
-              <p>{section.body || '—'}</p>
+              <p>
+                <RichText text={section.body} />
+              </p>
             </section>
           ))}
 
